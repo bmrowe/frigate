@@ -9,6 +9,7 @@ from frigate.video.ffmpeg import CameraWatchdog
 
 
 def build_watchdog() -> CameraWatchdog:
+    """Build a watchdog with mocked logging and communication dependencies."""
     config = FrigateConfig(
         **{
             "mqtt": {"host": "mqtt"},
@@ -22,6 +23,7 @@ def build_watchdog() -> CameraWatchdog:
                             },
                         ],
                     },
+                    "detect": {"height": 1080, "width": 1920},
                     "record": {"enabled": True},
                 }
             },
