@@ -1,0 +1,31 @@
+name: Upstream Frigate release check
+
+# Fails once upstream ships a release newer than the base of this local build.
+# GitHub emails a failed scheduled run, which is the cue to move the Unraid
+# template back to ghcr.io/blakeblackshear/frigate:stable.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 14 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  BASE_TAG: v0.18.2
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare the latest upstream release with the base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh release view --repo blakeblackshear/frigate --json tagName -q .tagName)
+          echo "latest upstream release: $latest, base: $BASE_TAG"
+          if [ "$latest" != "$BASE_TAG" ]; then
+            echo "::error::Frigate $latest is out. Point the Unraid template back at ghcr.io/blakeblackshear/frigate:stable and retire ghcr.io/bmrowe/frigate-unraid."
+            exit 1
+          fi

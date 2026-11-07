@@ -1,0 +1,50 @@
+name: Build local 0.18.3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [local-0.18.3]
+    paths-ignore:
+      - "docs/**"
+      - "local/README.md"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  BASE_TAG: v0.18.2
+  BASE_IMAGE: ghcr.io/blakeblackshear/frigate:0.18.2@sha256:fd60f99ffd4eb6c42360ed4e14953e270586f239309ab3983e55b2e97ffac09a
+  IMAGE: ghcr.io/bmrowe/frigate-unraid
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch the base release tag
+        run: git fetch --no-tags https://github.com/blakeblackshear/frigate.git "refs/tags/$BASE_TAG:refs/tags/$BASE_TAG"
+
+      - name: Stage the overlay and check the base image
+        run: local/build-overlay.sh "$BASE_TAG" "$BASE_IMAGE"
+
+      - name: Log into GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          short=$(git rev-parse --short=7 HEAD)
+          docker build local \
+            --build-arg BASE_IMAGE="$BASE_IMAGE" \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            --label org.opencontainers.image.version="${BASE_TAG#v}-local.$short" \
+            -t "$IMAGE:latest" -t "$IMAGE:${BASE_TAG#v}-local.$short"
+          docker push --all-tags "$IMAGE"
