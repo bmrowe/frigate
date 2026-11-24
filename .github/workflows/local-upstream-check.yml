@@ -1,8 +1,14 @@
 name: Upstream Frigate release check
 
-# Fails once upstream ships a release newer than the base of this local build.
-# GitHub emails a failed scheduled run, which is the cue to move the Unraid
-# template back to ghcr.io/blakeblackshear/frigate:stable.
+# Two different things can make this local build unnecessary, and they need
+# different answers, so the job asks about both. GitHub emails a failed
+# scheduled run, which is the only cue that reaches a human.
+#
+#   * Upstream ships the watchdog fix  -> retire the fork entirely.
+#   * Upstream ships any newer release -> rebase the overlay onto it.
+#
+# The old version only asked the second question but printed the first one's
+# answer, which sent us to :stable while the fix was still master-only.
 
 on:
   workflow_dispatch:
@@ -13,7 +19,11 @@ permissions:
   contents: read
 
 env:
-  BASE_TAG: v0.18.2
+  BASE_TAG: v0.18.3
+  # blakeblackshear/frigate#24663, "Avoid buffering raw frames during watchdog
+  # resets" -- the only reason this image exists. Merged to master 2026-10-15
+  # and still not in any 0.18 release.
+  FIX_COMMIT: 15da89e56c34a7df513c5e3fec502f97044de2da
 
 jobs:
   check:
@@ -24,8 +34,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           latest=$(gh release view --repo blakeblackshear/frigate --json tagName -q .tagName)
-          echo "latest upstream release: $latest, base: $BASE_TAG"
-          if [ "$latest" != "$BASE_TAG" ]; then
-            echo "::error::Frigate $latest is out. Point the Unraid template back at ghcr.io/blakeblackshear/frigate:stable and retire ghcr.io/bmrowe/frigate-unraid."
+          # ahead/identical mean FIX_COMMIT is an ancestor of the release.
+          status=$(gh api "repos/blakeblackshear/frigate/compare/$FIX_COMMIT...$latest" -q .status)
+          echo "latest upstream release: $latest, base: $BASE_TAG, fix status: $status"
+
+          if [ "$status" = ahead ] || [ "$status" = identical ]; then
+            echo "::error::Frigate $latest carries the watchdog fix (#24663). Point the Unraid template back at ghcr.io/blakeblackshear/frigate:stable and retire ghcr.io/bmrowe/frigate-unraid."
             exit 1
           fi
+
+          if [ "$latest" != "$BASE_TAG" ]; then
+            echo "::error::Frigate $latest is out and does not carry #24663, so this image is still needed. Rebase the overlay onto $latest: cherry-pick #24663 onto the new tag and update BASE_TAG and BASE_IMAGE in local-build.yml and this file."
+            exit 1
+          fi
+
+          echo "Still on the newest release, and the fix is still not upstream. Nothing to do."
